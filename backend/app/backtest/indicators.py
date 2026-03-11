@@ -1,6 +1,25 @@
 import numpy as np
 
 
+def sma(values: np.ndarray, period: int) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    if period <= 1:
+        return values.copy()
+    out = np.empty_like(values)
+    out[:] = np.nan
+    if len(values) == 0:
+        return out
+    csum = np.cumsum(values, dtype=float)
+    for i in range(period - 1, len(values)):
+        total = csum[i] - (csum[i - period] if i >= period else 0.0)
+        out[i] = total / period
+    # pad initial with first defined SMA to avoid NaNs propagating in simple uses
+    first = np.nanmin(out)
+    if not np.isnan(first):
+        out[: period - 1] = out[period - 1]
+    return out
+
+
 def ema(values: np.ndarray, period: int) -> np.ndarray:
     values = np.asarray(values, dtype=float)
     if period <= 1:

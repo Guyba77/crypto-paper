@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, Dict, Any, List, Optional
 import numpy as np
 
-from .indicators import ema, rsi
+from .indicators import ema, sma, rsi
 
 Side = Literal["buy", "sell"]
 
@@ -96,10 +96,13 @@ def backtest_ema_cross(
     fee_bps: float,
     slippage_bps: float,
     risk: Dict[str, Any],
-    trend_ema: Optional[np.ndarray] = None,
+    trend_ma: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
-    ef = ema(c, fast)
-    es = ema(c, slow)
+    # MA type for entry signal: 'ema' | 'sma'
+    ma_type = str(risk.get("ma_type", "ema"))
+    ma_fn = ema if ma_type == "ema" else sma
+    ef = ma_fn(c, fast)
+    es = ma_fn(c, slow)
 
     cash = float(initial_cash)
     pos = 0.0  # positive=long qty, negative=short qty
@@ -140,8 +143,8 @@ def backtest_ema_cross(
 
         if pos == 0:
             if prev <= 0 and curr > 0:
-                # enter long (trend filter: price above HTF EMA)
-                if trend_ema is None or (not np.isnan(trend_ema[i]) and c[i] > trend_ema[i]):
+                # enter long (trend filter: price above HTF MA)
+                if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] > trend_ma[i]):
                     stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
                     if stop is not None:
                         entry = float(c[i])
@@ -158,14 +161,14 @@ def backtest_ema_cross(
                                 pos=pos,
                                 fee_bps=fee_bps,
                                 slippage_bps=slippage_bps,
-                                meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp, "trend_ema": None if trend_ema is None else float(trend_ema[i])},
+                                meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp, "trend_ma": None if trend_ma is None else float(trend_ma[i])},
                             )
                             trades.append(tr)
                             entry_price, stop_price, tp_price = entry, stop, tp
 
             elif prev >= 0 and curr < 0:
-                # enter short (trend filter: price below HTF EMA)
-                if trend_ema is None or (not np.isnan(trend_ema[i]) and c[i] < trend_ema[i]):
+                # enter short (trend filter: price below HTF MA)
+                if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] < trend_ma[i]):
                     stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)
                     if stop is not None:
                         entry = float(c[i])
@@ -182,7 +185,7 @@ def backtest_ema_cross(
                                 pos=pos,
                                 fee_bps=fee_bps,
                                 slippage_bps=slippage_bps,
-                                meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp, "trend_ema": None if trend_ema is None else float(trend_ema[i])},
+                                meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp, "trend_ma": None if trend_ma is None else float(trend_ma[i])},
                             )
                             trades.append(tr)
                             entry_price, stop_price, tp_price = entry, stop, tp
@@ -206,7 +209,7 @@ def backtest_rsi_mean_reversion(
     fee_bps: float,
     slippage_bps: float,
     risk: Dict[str, Any],
-    trend_ema: Optional[np.ndarray] = None,
+    trend_ma: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     r = rsi(c, period)
 
@@ -243,8 +246,8 @@ def backtest_rsi_mean_reversion(
         # entries
         if pos == 0:
             if r[i] <= buy_below:
-                # enter long only if above HTF EMA
-                if trend_ema is None or (not np.isnan(trend_ema[i]) and c[i] > trend_ema[i]):
+                # enter long only if above HTF MA
+                if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] > trend_ma[i]):
                     stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
                     if stop is not None:
                         entry = float(c[i])
@@ -261,14 +264,14 @@ def backtest_rsi_mean_reversion(
                                 pos=pos,
                                 fee_bps=fee_bps,
                                 slippage_bps=slippage_bps,
-                                meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp, "trend_ema": None if trend_ema is None else float(trend_ema[i])},
+                                meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp, "trend_ma": None if trend_ma is None else float(trend_ma[i])},
                             )
                             trades.append(tr)
                             stop_price, tp_price = stop, tp
 
             elif r[i] >= sell_above:
-                # enter short only if below HTF EMA
-                if trend_ema is None or (not np.isnan(trend_ema[i]) and c[i] < trend_ema[i]):
+                # enter short only if below HTF MA
+                if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] < trend_ma[i]):
                     stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)
                     if stop is not None:
                         entry = float(c[i])
@@ -285,7 +288,7 @@ def backtest_rsi_mean_reversion(
                                 pos=pos,
                                 fee_bps=fee_bps,
                                 slippage_bps=slippage_bps,
-                                meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp, "trend_ema": None if trend_ema is None else float(trend_ema[i])},
+                                meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp, "trend_ma": None if trend_ma is None else float(trend_ma[i])},
                             )
                             trades.append(tr)
                             stop_price, tp_price = stop, tp

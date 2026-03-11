@@ -35,36 +35,39 @@ async def run_backtest(req: BacktestRequest):
         "rr": float(req.params.get("rr", 3.0)),
         # if both stop and TP are touched in same candle, assume stop first (conservative)
         "same_bar_priority": str(req.params.get("same_bar_priority", "stop")),
+        # MA type for EMA/SMA cross strategy
+        "ma_type": str(req.params.get("ma_type", "ema")),
     }
 
-    # trend filter (higher timeframe EMA)
+    # trend filter (higher timeframe MA)
     trend = {
         "enabled": bool(req.params.get("trend_enabled", True)),
         "interval": str(req.params.get("trend_interval", "15m")),
-        "ema_period": int(req.params.get("trend_ema_period", 200)),
+        "ma_type": str(req.params.get("trend_ma_type", "ema")),
+        "period": int(req.params.get("trend_period", 200)),
     }
 
-    # compute trend EMA series on higher timeframe and align to base candles
-    trend_ema = None
+    # compute trend MA series on higher timeframe and align to base candles
+    trend_ma = None
     if trend["enabled"]:
         raw_trend = await fetch_klines(symbol=req.symbol, interval=trend["interval"], limit=1000)
         t2 = np.array([int(k[0]) for k in raw_trend], dtype=np.int64)
         c2 = np.array([float(k[4]) for k in raw_trend], dtype=float)
-        from ..backtest.indicators import ema as ema_fn
-        ema2 = ema_fn(c2, trend["ema_period"])
-        # align: for each base candle time, use last EMA where t2 <= t
+        from ..backtest.indicators import ema as ema_fn, sma as sma_fn
+        ma2 = (ema_fn if trend["ma_type"] == "ema" else sma_fn)(c2, trend["period"])
+        # align: for each base candle time, use last MA where t2 <= t
         idx = np.searchsorted(t2, t, side="right") - 1
-        trend_ema = np.where(idx >= 0, ema2[np.clip(idx, 0, len(ema2)-1)], np.nan)
+        trend_ma = np.where(idx >= 0, ma2[np.clip(idx, 0, len(ma2)-1)], np.nan)
 
     if req.strategy == "ema_cross":
         fast = int(req.params.get("fast", 20))
         slow = int(req.params.get("slow", 50))
-        result = backtest_ema_cross(t, o, h, l, c, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ema)
+        result = backtest_ema_cross(t, o, h, l, c, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ma)
     elif req.strategy == "rsi_mean_reversion":
         period = int(req.params.get("period", 14))
         buy_below = float(req.params.get("buy_below", 30))
         sell_above = float(req.params.get("sell_above", 70))
-        result = backtest_rsi_mean_reversion(t, o, h, l, c, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ema)
+        result = backtest_rsi_mean_reversion(t, o, h, l, c, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ma)
     else:
         return {"error": f"unknown strategy: {req.strategy}"}
 

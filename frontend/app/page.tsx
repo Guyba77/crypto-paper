@@ -9,11 +9,14 @@ const API = "http://localhost:8000";
 export default function HomePage() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbol, setSymbol] = useState<string>("BTCUSDT");
+  const [selected, setSelected] = useState<Set<string>>(new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]));
   const [candles, setCandles] = useState<Candle[]>([]);
 
   const [strategy, setStrategy] = useState<string>("ema_cross");
   const [params, setParams] = useState<Record<string, string>>({ fast: "7", slow: "18", stop_lookback: "11", rr: "3", ma_type: "ema", trend_enabled: "1", trend_interval: "15m", trend_ma_type: "ema", trend_period: "200" });
   const [stats, setStats] = useState<any>(null);
+  const [batchResults, setBatchResults] = useState<any>(null);
+  const [runningBatch, setRunningBatch] = useState<boolean>(false);
 
   useEffect(() => {
     fetch(`${API}/api/symbols`).then(r => r.json()).then(d => setSymbols(d.symbols));
@@ -27,6 +30,18 @@ export default function HomePage() {
 
   const last = useMemo(() => candles[candles.length - 1], [candles]);
 
+  function buildParams() {
+    return Object.fromEntries(
+      Object.entries(params).map(([k, v]) => {
+        if (k === "trend_interval") return [k, v];
+        if (k === "ma_type") return [k, v];
+        if (k === "trend_ma_type") return [k, v];
+        if (k === "trend_enabled") return [k, v === "1" || v.toLowerCase() === "true"];
+        return [k, Number(v)];
+      })
+    );
+  }
+
   async function runBacktest() {
     const payload = {
       symbol,
@@ -34,15 +49,7 @@ export default function HomePage() {
       days: 30,
       max_candles: 20000,
       strategy,
-      params: Object.fromEntries(
-        Object.entries(params).map(([k, v]) => {
-          if (k === "trend_interval") return [k, v];
-          if (k === "ma_type") return [k, v];
-          if (k === "trend_ma_type") return [k, v];
-          if (k === "trend_enabled") return [k, v === "1" || v.toLowerCase() === "true"];
-          return [k, Number(v)];
-        })
-      ),
+      params: buildParams(),
       initial_cash: 1000,
       fee_bps: 10,
       slippage_bps: 2,
@@ -55,6 +62,37 @@ export default function HomePage() {
     });
     const data = await res.json();
     setStats(data.stats ?? data);
+  }
+
+  async function runBatchBacktest() {
+    const payload = {
+      symbols: Array.from(selected),
+      backtest: {
+        symbol: "BTCUSDT",
+        interval: "3m",
+        days: 30,
+        max_candles: 20000,
+        strategy,
+        params: buildParams(),
+        initial_cash: 1000,
+        fee_bps: 10,
+        slippage_bps: 2,
+      },
+    };
+
+    setRunningBatch(true);
+    setBatchResults(null);
+    try {
+      const res = await fetch(`${API}/api/backtest/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setBatchResults(data);
+    } finally {
+      setRunningBatch(false);
+    }
   }
 
   return (
@@ -70,6 +108,39 @@ export default function HomePage() {
             ))}
           </select>
         </label>
+
+        <details>
+          <summary style={{ cursor: "pointer" }}>Batch markets ({selected.size})</summary>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, paddingTop: 8, maxWidth: 640 }}>
+            {(symbols.length ? symbols : ["BTCUSDT"]).map((s) => (
+              <label key={s} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(s)}
+                  onChange={(e) => {
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(s);
+                      else next.delete(s);
+                      return next;
+                    });
+                  }}
+                />
+                {s}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, paddingTop: 8 }}>
+            <button
+              onClick={() => setSelected(new Set(symbols))}
+              disabled={!symbols.length}
+              type="button"
+            >
+              Select all
+            </button>
+            <button onClick={() => setSelected(new Set())} type="button">Clear</button>
+          </div>
+        </details>
 
         <label>
           Strategy:{" "}
@@ -102,6 +173,9 @@ export default function HomePage() {
         ))}
 
         <button onClick={runBacktest}>Run backtest</button>
+        <button onClick={runBatchBacktest} disabled={runningBatch || selected.size === 0}>
+          {runningBatch ? "Running batch…" : `Run batch (${selected.size})`}
+        </button>
       </section>
 
       <section style={{ marginTop: 16 }}>
@@ -119,6 +193,17 @@ export default function HomePage() {
           <pre style={{ background: "#f6f6f6", padding: 12, overflowX: "auto" }}>{JSON.stringify(stats, null, 2)}</pre>
         ) : (
           <p>Run a backtest to see results.</p>
+        )}
+      </section>
+
+      <section style={{ marginTop: 16 }}>
+        <h2>Batch results</h2>
+        {batchResults ? (
+          <>
+            <pre style={{ background: "#f6f6f6", padding: 12, overflowX: "auto" }}>{JSON.stringify(batchResults, null, 2)}</pre>
+          </>
+        ) : (
+          <p>Run a batch backtest to compare multiple markets.</p>
         )}
       </section>
 

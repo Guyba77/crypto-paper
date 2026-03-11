@@ -116,6 +116,7 @@ def backtest_ema_cross(
     lookback = int(risk.get("stop_lookback", 11))
     rr = float(risk.get("rr", 3.0))
     priority = str(risk.get("same_bar_priority", "stop"))
+    direction = str(risk.get("direction", "both"))  # 'long'|'short'|'both'
 
     for i in range(1, len(c)):
         equity.append({"t": int(t[i]), "equity": float(cash + pos * c[i])})
@@ -142,7 +143,7 @@ def backtest_ema_cross(
         curr = ef[i] - es[i]
 
         if pos == 0:
-            if prev <= 0 and curr > 0:
+            if direction in ("both", "long") and prev <= 0 and curr > 0:
                 # enter long (trend filter: price above HTF MA)
                 if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] > trend_ma[i]):
                     stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
@@ -166,7 +167,7 @@ def backtest_ema_cross(
                             trades.append(tr)
                             entry_price, stop_price, tp_price = entry, stop, tp
 
-            elif prev >= 0 and curr < 0:
+            elif direction in ("both", "short") and prev >= 0 and curr < 0:
                 # enter short (trend filter: price below HTF MA)
                 if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] < trend_ma[i]):
                     stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)
@@ -224,6 +225,7 @@ def backtest_rsi_mean_reversion(
     lookback = int(risk.get("stop_lookback", 11))
     rr = float(risk.get("rr", 3.0))
     priority = str(risk.get("same_bar_priority", "stop"))
+    direction = str(risk.get("direction", "both"))  # 'long'|'short'|'both'
 
     for i in range(1, len(c)):
         equity.append({"t": int(t[i]), "equity": float(cash + pos * c[i])})
@@ -245,7 +247,7 @@ def backtest_rsi_mean_reversion(
 
         # entries
         if pos == 0:
-            if r[i] <= buy_below:
+            if direction in ("both", "long") and r[i] <= buy_below:
                 # enter long only if above HTF MA
                 if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] > trend_ma[i]):
                     stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
@@ -269,7 +271,7 @@ def backtest_rsi_mean_reversion(
                             trades.append(tr)
                             stop_price, tp_price = stop, tp
 
-            elif r[i] >= sell_above:
+            elif direction in ("both", "short") and r[i] >= sell_above:
                 # enter short only if below HTF MA
                 if trend_ma is None or (not np.isnan(trend_ma[i]) and c[i] < trend_ma[i]):
                     stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)

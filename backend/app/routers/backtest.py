@@ -64,6 +64,8 @@ async def run_backtest(req: BacktestRequest):
         "same_bar_priority": str(req.params.get("same_bar_priority", "stop")),
         # MA type for EMA/SMA cross strategy
         "ma_type": str(req.params.get("ma_type", "ema")),
+        # direction filter
+        "direction": str(req.params.get("direction", "both")),
     }
 
     # trend filter (higher timeframe MA)

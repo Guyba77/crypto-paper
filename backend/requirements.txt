@@ -1,9 +1,10 @@
 fastapi==0.115.6
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
-SQLAlchemy==2.0.35
-psycopg[binary]==3.2.3
-alembic==1.13.3
 httpx==0.27.2
 pandas==2.2.3
 numpy==2.1.2
+
+# DB dependencies (SQLAlchemy/psycopg/alembic) intentionally omitted for now.
+# Reason: psycopg binary wheels may lag very-new Python versions (e.g. 3.14).
+# We can re-introduce DB support via Docker + a supported Python (3.12/3.13) or source builds.

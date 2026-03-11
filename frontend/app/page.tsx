@@ -212,11 +212,6 @@ export default function HomePage() {
           <>
             {(() => {
               const rows = batchResults.results as any[];
-              const endVals = rows
-                .map((r) => r?.stats?.end_equity)
-                .filter((x) => typeof x === "number") as number[];
-              const avgEnd = endVals.length ? endVals.reduce((a, b) => a + b, 0) / endVals.length : null;
-
               return (
                 <div style={{ overflowX: "auto" }}>
                   <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
@@ -246,8 +241,20 @@ export default function HomePage() {
                         );
                       })}
                       <tr style={{ borderTop: "2px solid #ddd", fontWeight: 600 }}>
-                        <td colSpan={4}>Average end equity</td>
-                        <td>{avgEnd === null ? "—" : avgEnd.toFixed(2)}</td>
+                        <td colSpan={4}>Batch total change</td>
+                        <td>
+                          {(() => {
+                            const starts = rows.map((r) => r?.stats?.start_equity).filter((x) => typeof x === "number") as number[];
+                            const ends = rows.map((r) => r?.stats?.end_equity).filter((x) => typeof x === "number") as number[];
+                            if (!starts.length || !ends.length || starts.length !== ends.length) return "—";
+                            const totalStart = starts.reduce((a, b) => a + b, 0);
+                            const totalEnd = ends.reduce((a, b) => a + b, 0);
+                            const delta = totalEnd - totalStart;
+                            const pct = totalStart ? (delta / totalStart) * 100 : NaN;
+                            const sign = delta >= 0 ? "+" : "";
+                            return `${sign}$${delta.toFixed(2)} (${pct.toFixed(2)}%)`;
+                          })()}
+                        </td>
                       </tr>
                     </tbody>
                   </table>

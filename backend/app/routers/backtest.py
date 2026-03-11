@@ -1,0 +1,59 @@
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+import numpy as np
+
+from ..services.binance import fetch_klines
+from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
+
+router = APIRouter()
+
+class BacktestRequest(BaseModel):
+    symbol: str
+    interval: str = "3m"
+    limit: int = Field(default=1000, ge=50, le=1000)
+
+    strategy: str  # 'ema_cross' | 'rsi_mean_reversion'
+    params: dict = {}
+
+    initial_cash: float = 1000.0
+    fee_bps: float = 10.0
+    slippage_bps: float = 2.0
+
+
+@router.post("/backtest")
+async def run_backtest(req: BacktestRequest):
+    raw = await fetch_klines(symbol=req.symbol, interval=req.interval, limit=req.limit)
+    t = np.array([int(k[0]) for k in raw], dtype=np.int64)
+    close = np.array([float(k[4]) for k in raw], dtype=float)
+
+    if req.strategy == "ema_cross":
+        fast = int(req.params.get("fast", 20))
+        slow = int(req.params.get("slow", 50))
+        result = backtest_ema_cross(t, close, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps)
+    elif req.strategy == "rsi_mean_reversion":
+        period = int(req.params.get("period", 14))
+        buy_below = float(req.params.get("buy_below", 30))
+        sell_above = float(req.params.get("sell_above", 55))
+        result = backtest_rsi_mean_reversion(t, close, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps)
+    else:
+        return {"error": f"unknown strategy: {req.strategy}"}
+
+    # quick stats
+    equity = result["equity"]
+    if equity:
+        start = equity[0]["equity"]
+        end = equity[-1]["equity"]
+        result["stats"] = {
+            "start_equity": start,
+            "end_equity": end,
+            "return_pct": (end - start) / start * 100.0 if start else None,
+            "trades": len(result["trades"]),
+        }
+
+    return {
+        "symbol": req.symbol,
+        "interval": req.interval,
+        "strategy": req.strategy,
+        "params": req.params,
+        **result,
+    }

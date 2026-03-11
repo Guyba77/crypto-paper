@@ -31,7 +31,8 @@ export default function HomePage() {
     const payload = {
       symbol,
       interval: "3m",
-      limit: 1000,
+      days: 30,
+      max_candles: 20000,
       strategy,
       params: Object.fromEntries(
         Object.entries(params).map(([k, v]) => {

@@ -11,13 +11,29 @@ MVP web app for Binance spot top-20 symbols:
 - `docker-compose.yml` Postgres + Redis
 
 ## Quickstart
+
+### One-time prereqs (new Mac)
+- Node.js + npm
+- Python **3.13** (recommended; avoids native build issues on very-new Python versions)
+
+### Run (simple)
+In one terminal:
+- `make backend`
+
+In another terminal:
+- `make frontend`
+
+(Optional infra):
+- `make infra`
+
+Then open http://localhost:3000
+
+### Manual run
 1) `docker compose up -d`
 2) Backend:
-   - `cd backend && python -m venv .venv && source .venv/bin/activate`
+   - `cd backend && python3.13 -m venv .venv && source .venv/bin/activate`
    - `pip install -r requirements.txt`
-   - `uvicorn app.main:app --reload --port 8000`
+   - `python -m uvicorn app.main:app --reload --port 8000`
 3) Frontend:
    - `cd frontend && npm i`
    - `npm run dev`
-
-Then open http://localhost:3000

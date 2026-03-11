@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 from datetime import datetime, timezone
 
-from ..services.binance import fetch_klines
+from ..services.binance import fetch_klines_paged
 
 router = APIRouter()
 
@@ -9,10 +9,10 @@ router = APIRouter()
 async def get_candles(
     symbol: str,
     interval: str = Query(default="3m"),
-    limit: int = Query(default=500, ge=1, le=1000),
+    limit: int = Query(default=500, ge=1, le=5000),
 ):
-    # MVP: proxy to Binance. Next step: persist to DB and serve from there.
-    raw = await fetch_klines(symbol=symbol, interval=interval, limit=limit)
+    # Proxy to Binance with paging support.
+    raw = await fetch_klines_paged(symbol=symbol, interval=interval, max_candles=limit)
 
     candles = []
     for k in raw:

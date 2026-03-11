@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 import numpy as np
 
-from ..services.binance import fetch_klines
+from ..services.binance import fetch_klines_paged
 from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
 
 router = APIRouter()
@@ -10,7 +10,16 @@ router = APIRouter()
 class BacktestRequest(BaseModel):
     symbol: str
     interval: str = "3m"
-    limit: int = Field(default=1000, ge=50, le=1000)
+
+    # Backtest window controls:
+    # - days: fetch N days back from now (approx, based on candle count)
+    # - start_time/end_time: ms since epoch (Binance startTime/endTime)
+    days: int | None = Field(default=7, ge=1, le=365)
+    start_time: int | None = None
+    end_time: int | None = None
+
+    # safety cap
+    max_candles: int = Field(default=20000, ge=50, le=200000)
 
     strategy: str  # 'ema_cross' | 'rsi_mean_reversion'
     params: dict = {}
@@ -22,7 +31,25 @@ class BacktestRequest(BaseModel):
 
 @router.post("/backtest")
 async def run_backtest(req: BacktestRequest):
-    raw = await fetch_klines(symbol=req.symbol, interval=req.interval, limit=req.limit)
+    # Determine window
+    end_time = req.end_time
+    start_time = req.start_time
+
+    if start_time is None and end_time is None and req.days is not None:
+        # approximate candles needed (3m => 480/day). For other intervals, just over-fetch safely.
+        approx = int(req.days * 480) if req.interval == "3m" else int(req.days * 1000)
+        max_candles = min(req.max_candles, max(approx, 500))
+    else:
+        max_candles = req.max_candles
+
+    raw = await fetch_klines_paged(
+        symbol=req.symbol,
+        interval=req.interval,
+        startTime=start_time,
+        endTime=end_time,
+        max_candles=max_candles,
+    )
+
     t = np.array([int(k[0]) for k in raw], dtype=np.int64)
     o = np.array([float(k[1]) for k in raw], dtype=float)
     h = np.array([float(k[2]) for k in raw], dtype=float)
@@ -50,7 +77,7 @@ async def run_backtest(req: BacktestRequest):
     # compute trend MA series on higher timeframe and align to base candles
     trend_ma = None
     if trend["enabled"]:
-        raw_trend = await fetch_klines(symbol=req.symbol, interval=trend["interval"], limit=1000)
+        raw_trend = await fetch_klines_paged(symbol=req.symbol, interval=trend["interval"], max_candles=1000)
         t2 = np.array([int(k[0]) for k in raw_trend], dtype=np.int64)
         c2 = np.array([float(k[4]) for k in raw_trend], dtype=float)
         from ..backtest.indicators import ema as ema_fn, sma as sma_fn

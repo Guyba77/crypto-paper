@@ -22,7 +22,7 @@ async def live_state():
         "running": STATE.running,
         "started_at": STATE.started_at,
         "last_error": STATE.last_error,
-        "config": STATE.config.model_dump() if STATE.config else None,
+        "config": STATE.config.__dict__ if STATE.config else None,
         "markets": {k: v.__dict__ for k, v in STATE.markets.items()},
     }
 

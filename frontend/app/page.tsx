@@ -198,9 +198,43 @@ export default function HomePage() {
 
       <section style={{ marginTop: 16 }}>
         <h2>Batch results</h2>
-        {batchResults ? (
+        {batchResults?.results ? (
           <>
-            <pre style={{ background: "#f6f6f6", padding: 12, overflowX: "auto" }}>{JSON.stringify(batchResults, null, 2)}</pre>
+            <div style={{ overflowX: "auto" }}>
+              <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                    <th>Symbol</th>
+                    <th>Return %</th>
+                    <th>Trades</th>
+                    <th>Start equity</th>
+                    <th>End equity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchResults.results.map((r: any) => {
+                    const s = r.stats ?? {};
+                    const ret = typeof s.return_pct === "number" ? s.return_pct : null;
+                    return (
+                      <tr key={r.symbol} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{r.symbol}</td>
+                        <td style={{ color: ret === null ? undefined : ret >= 0 ? "#0a7" : "#c22" }}>
+                          {ret === null ? "—" : ret.toFixed(2)}
+                        </td>
+                        <td>{s.trades ?? "—"}</td>
+                        <td>{s.start_equity?.toFixed ? s.start_equity.toFixed(2) : "—"}</td>
+                        <td>{s.end_equity?.toFixed ? s.end_equity.toFixed(2) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer" }}>Raw JSON</summary>
+              <pre style={{ background: "#f6f6f6", padding: 12, overflowX: "auto" }}>{JSON.stringify(batchResults, null, 2)}</pre>
+            </details>
           </>
         ) : (
           <p>Run a batch backtest to compare multiple markets.</p>

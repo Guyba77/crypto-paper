@@ -18,6 +18,9 @@ export default function HomePage() {
   const [batchResults, setBatchResults] = useState<any>(null);
   const [runningBatch, setRunningBatch] = useState<boolean>(false);
 
+  const [liveState, setLiveState] = useState<any>(null);
+  const [livePolling, setLivePolling] = useState<boolean>(false);
+
   useEffect(() => {
     fetch(`${API}/api/symbols`).then(r => r.json()).then(d => setSymbols(d.symbols));
   }, []);
@@ -95,6 +98,46 @@ export default function HomePage() {
       setRunningBatch(false);
     }
   }
+
+  async function fetchLive() {
+    const res = await fetch(`${API}/api/live/state`);
+    const data = await res.json();
+    setLiveState(data);
+  }
+
+  async function startLive() {
+    const payload = {
+      symbols: Array.from(selected),
+      strategy,
+      params: buildParams(),
+      trade_mode: "off",
+    };
+    await fetch(`${API}/api/live/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await fetchLive();
+    setLivePolling(true);
+  }
+
+  async function stopLive() {
+    await fetch(`${API}/api/live/stop`, { method: "POST" });
+    await fetchLive();
+    setLivePolling(false);
+  }
+
+  useEffect(() => {
+    fetchLive().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!livePolling) return;
+    const id = setInterval(() => {
+      fetchLive().catch(() => {});
+    }, 2000);
+    return () => clearInterval(id);
+  }, [livePolling]);
 
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
@@ -186,6 +229,53 @@ export default function HomePage() {
         <button onClick={runBatchBacktest} disabled={runningBatch || selected.size === 0}>
           {runningBatch ? "Running batch…" : `Run batch (${selected.size})`}
         </button>
+      </section>
+
+      <section style={{ marginTop: 16 }}>
+        <h2>Live screener (Binance candles)</h2>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={fetchLive}>Refresh</button>
+          {!liveState?.running ? (
+            <button onClick={startLive} disabled={selected.size === 0}>Start live screener</button>
+          ) : (
+            <button onClick={stopLive}>Stop live screener</button>
+          )}
+          <span style={{ color: "#666" }}>
+            {liveState?.running ? "running" : "stopped"}
+            {liveState?.last_error ? ` — error: ${liveState.last_error}` : ""}
+          </span>
+        </div>
+
+        {liveState?.markets ? (
+          <div style={{ marginTop: 8, overflowX: "auto" }}>
+            <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 700 }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                  <th>Symbol</th>
+                  <th>Last</th>
+                  <th>Trend MA</th>
+                  <th>Signal</th>
+                  <th>Stop</th>
+                  <th>TP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.values(liveState.markets).map((m: any) => (
+                  <tr key={m.symbol} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                    <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{m.symbol}</td>
+                    <td>{m.last_price?.toFixed ? m.last_price.toFixed(2) : "—"}</td>
+                    <td>{m.trend_ma?.toFixed ? m.trend_ma.toFixed(2) : "—"}</td>
+                    <td style={{ fontWeight: 600 }}>{m.signal ?? "—"}</td>
+                    <td>{m.signal_meta?.stop ? Number(m.signal_meta.stop).toFixed(2) : "—"}</td>
+                    <td>{m.signal_meta?.tp ? Number(m.signal_meta.tp).toFixed(2) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p style={{ color: "#666" }}>No live state yet.</p>
+        )}
       </section>
 
       <section style={{ marginTop: 16 }}>

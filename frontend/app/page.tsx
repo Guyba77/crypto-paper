@@ -12,7 +12,7 @@ export default function HomePage() {
   const [candles, setCandles] = useState<Candle[]>([]);
 
   const [strategy, setStrategy] = useState<string>("ema_cross");
-  const [params, setParams] = useState<Record<string, string>>({ fast: "20", slow: "50" });
+  const [params, setParams] = useState<Record<string, string>>({ fast: "20", slow: "50", stop_lookback: "11", rr: "3" });
   const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
@@ -69,7 +69,11 @@ export default function HomePage() {
             onChange={(e) => {
               const v = e.target.value;
               setStrategy(v);
-              setParams(v === "ema_cross" ? { fast: "20", slow: "50" } : { period: "14", buy_below: "30", sell_above: "55" });
+              setParams(
+                v === "ema_cross"
+                  ? { fast: "20", slow: "50", stop_lookback: "11", rr: "3" }
+                  : { period: "14", buy_below: "30", sell_above: "70", stop_lookback: "11", rr: "3" }
+              );
             }}
           >
             <option value="ema_cross">EMA cross</option>

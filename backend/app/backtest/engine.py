@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Literal, Dict, Any, List
+from typing import Literal, Dict, Any, List, Optional
 import numpy as np
 
 from .indicators import ema, rsi
@@ -15,110 +17,232 @@ class Trade:
     price: float
     qty: float
     fee: float
+    meta: Dict[str, Any]
+
+
+def _exec_fill(
+    *,
+    side: Side,
+    price: float,
+    qty: float,
+    ts: int,
+    cash: float,
+    pos: float,
+    fee_bps: float,
+    slippage_bps: float,
+    meta: Optional[Dict[str, Any]] = None,
+) -> tuple[float, float, Trade]:
+    slip = price * (slippage_bps / 10000.0)
+    fill_price = price + slip if side == "buy" else price - slip
+    notional = fill_price * qty
+    fee = notional * (fee_bps / 10000.0)
+    if side == "buy":
+        cash -= notional + fee
+        pos += qty
+    else:
+        cash += notional - fee
+        pos -= qty
+    return cash, pos, Trade(t=ts, side=side, price=float(fill_price), qty=float(qty), fee=float(fee), meta=meta or {})
+
+
+def _swing_stop(
+    *,
+    side: Literal["long", "short"],
+    highs: np.ndarray,
+    lows: np.ndarray,
+    i: int,
+    lookback: int,
+) -> float | None:
+    # Uses the prior `lookback` fully-formed candles, excluding the entry candle at index i.
+    start = i - lookback
+    end = i
+    if start < 0:
+        return None
+    if side == "long":
+        return float(np.min(lows[start:end]))
+    else:
+        return float(np.max(highs[start:end]))
+
+
+def _check_exits_same_bar_conservative(
+    *,
+    side: Literal["long", "short"],
+    hi: float,
+    lo: float,
+    stop: float,
+    tp: float,
+    priority: str,
+) -> str | None:
+    # Returns 'stop' | 'tp' | None
+    stop_hit = lo <= stop if side == "long" else hi >= stop
+    tp_hit = hi >= tp if side == "long" else lo <= tp
+
+    if not stop_hit and not tp_hit:
+        return None
+    if stop_hit and tp_hit:
+        return "stop" if priority == "stop" else "tp"
+    return "stop" if stop_hit else "tp"
 
 
 def backtest_ema_cross(
     t: np.ndarray,
-    close: np.ndarray,
+    o: np.ndarray,
+    h: np.ndarray,
+    l: np.ndarray,
+    c: np.ndarray,
     fast: int,
     slow: int,
     initial_cash: float,
     fee_bps: float,
     slippage_bps: float,
+    risk: Dict[str, Any],
 ) -> Dict[str, Any]:
-    ef = ema(close, fast)
-    es = ema(close, slow)
+    ef = ema(c, fast)
+    es = ema(c, slow)
 
-    cash = initial_cash
-    pos = 0.0
+    cash = float(initial_cash)
+    pos = 0.0  # positive=long qty, negative=short qty
+    entry_price: float | None = None
+    stop_price: float | None = None
+    tp_price: float | None = None
+
     trades: List[Trade] = []
     equity = []
 
-    def exec_fill(side: Side, price: float, qty: float, ts: int):
-        nonlocal cash, pos
-        slip = price * (slippage_bps / 10000.0)
-        fill_price = price + slip if side == "buy" else price - slip
-        notional = fill_price * qty
-        fee = notional * (fee_bps / 10000.0)
-        if side == "buy":
-            cash -= notional + fee
-            pos += qty
-        else:
-            cash += notional - fee
-            pos -= qty
-        trades.append(Trade(t=ts, side=side, price=fill_price, qty=qty, fee=fee))
+    lookback = int(risk.get("stop_lookback", 11))
+    rr = float(risk.get("rr", 3.0))
+    priority = str(risk.get("same_bar_priority", "stop"))
 
-    for i in range(1, len(close)):
-        # mark-to-market equity
-        equity.append({"t": int(t[i]), "equity": float(cash + pos * close[i])})
+    for i in range(1, len(c)):
+        equity.append({"t": int(t[i]), "equity": float(cash + pos * c[i])})
 
-        # signal on cross
-        prev = ef[i-1] - es[i-1]
+        # Manage open position exits (stop/tp)
+        if pos != 0 and stop_price is not None and tp_price is not None:
+            side = "long" if pos > 0 else "short"
+            hit = _check_exits_same_bar_conservative(side=side, hi=float(h[i]), lo=float(l[i]), stop=stop_price, tp=tp_price, priority=priority)
+            if hit == "stop":
+                exit_px = stop_price
+                exit_side: Side = "sell" if pos > 0 else "buy"
+                cash, pos, tr = _exec_fill(side=exit_side, price=exit_px, qty=abs(pos), ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "stop"})
+                trades.append(tr)
+                entry_price = stop_price = tp_price = None
+            elif hit == "tp":
+                exit_px = tp_price
+                exit_side = "sell" if pos > 0 else "buy"
+                cash, pos, tr = _exec_fill(side=exit_side, price=exit_px, qty=abs(pos), ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "tp"})
+                trades.append(tr)
+                entry_price = stop_price = tp_price = None
+
+        # Signal logic (EMA cross) only enters if flat
+        prev = ef[i - 1] - es[i - 1]
         curr = ef[i] - es[i]
-        if prev <= 0 and curr > 0:
-            # go long with all cash
-            if pos == 0 and cash > 0:
-                qty = cash / close[i]
-                exec_fill("buy", close[i], qty, int(t[i]))
-        elif prev >= 0 and curr < 0:
-            # exit
-            if pos > 0:
-                exec_fill("sell", close[i], pos, int(t[i]))
 
-    # final equity point
-    if len(close) > 0:
-        equity.append({"t": int(t[-1]), "equity": float(cash + pos * close[-1])})
+        if pos == 0:
+            if prev <= 0 and curr > 0:
+                # enter long
+                stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
+                if stop is not None:
+                    entry = float(c[i])
+                    dist = entry - stop
+                    if dist > 0:
+                        tp = entry + rr * dist
+                        qty = cash / entry
+                        cash, pos, tr = _exec_fill(side="buy", price=entry, qty=qty, ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp})
+                        trades.append(tr)
+                        entry_price, stop_price, tp_price = entry, stop, tp
 
-    return {
-        "trades": [trade.__dict__ for trade in trades],
-        "equity": equity,
-    }
+            elif prev >= 0 and curr < 0:
+                # enter short
+                stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)
+                if stop is not None:
+                    entry = float(c[i])
+                    dist = stop - entry
+                    if dist > 0:
+                        tp = entry - rr * dist
+                        qty = cash / entry
+                        cash, pos, tr = _exec_fill(side="sell", price=entry, qty=qty, ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp})
+                        trades.append(tr)
+                        entry_price, stop_price, tp_price = entry, stop, tp
+
+    if len(c) > 0:
+        equity.append({"t": int(t[-1]), "equity": float(cash + pos * c[-1])})
+
+    return {"trades": [trade.__dict__ for trade in trades], "equity": equity}
 
 
 def backtest_rsi_mean_reversion(
     t: np.ndarray,
-    close: np.ndarray,
+    o: np.ndarray,
+    h: np.ndarray,
+    l: np.ndarray,
+    c: np.ndarray,
     period: int,
     buy_below: float,
     sell_above: float,
     initial_cash: float,
     fee_bps: float,
     slippage_bps: float,
+    risk: Dict[str, Any],
 ) -> Dict[str, Any]:
-    r = rsi(close, period)
+    r = rsi(c, period)
 
-    cash = initial_cash
+    cash = float(initial_cash)
     pos = 0.0
+    stop_price: float | None = None
+    tp_price: float | None = None
+
     trades: List[Trade] = []
     equity = []
 
-    def exec_fill(side: Side, price: float, qty: float, ts: int):
-        nonlocal cash, pos
-        slip = price * (slippage_bps / 10000.0)
-        fill_price = price + slip if side == "buy" else price - slip
-        notional = fill_price * qty
-        fee = notional * (fee_bps / 10000.0)
-        if side == "buy":
-            cash -= notional + fee
-            pos += qty
-        else:
-            cash += notional - fee
-            pos -= qty
-        trades.append(Trade(t=ts, side=side, price=fill_price, qty=qty, fee=fee))
+    lookback = int(risk.get("stop_lookback", 11))
+    rr = float(risk.get("rr", 3.0))
+    priority = str(risk.get("same_bar_priority", "stop"))
 
-    for i in range(1, len(close)):
-        equity.append({"t": int(t[i]), "equity": float(cash + pos * close[i])})
+    for i in range(1, len(c)):
+        equity.append({"t": int(t[i]), "equity": float(cash + pos * c[i])})
 
-        if pos == 0 and r[i] <= buy_below and cash > 0:
-            qty = cash / close[i]
-            exec_fill("buy", close[i], qty, int(t[i]))
-        elif pos > 0 and r[i] >= sell_above:
-            exec_fill("sell", close[i], pos, int(t[i]))
+        # exits
+        if pos != 0 and stop_price is not None and tp_price is not None:
+            side = "long" if pos > 0 else "short"
+            hit = _check_exits_same_bar_conservative(side=side, hi=float(h[i]), lo=float(l[i]), stop=stop_price, tp=tp_price, priority=priority)
+            if hit == "stop":
+                exit_side: Side = "sell" if pos > 0 else "buy"
+                cash, pos, tr = _exec_fill(side=exit_side, price=stop_price, qty=abs(pos), ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "stop"})
+                trades.append(tr)
+                stop_price = tp_price = None
+            elif hit == "tp":
+                exit_side = "sell" if pos > 0 else "buy"
+                cash, pos, tr = _exec_fill(side=exit_side, price=tp_price, qty=abs(pos), ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "tp"})
+                trades.append(tr)
+                stop_price = tp_price = None
 
-    if len(close) > 0:
-        equity.append({"t": int(t[-1]), "equity": float(cash + pos * close[-1])})
+        # entries
+        if pos == 0:
+            if r[i] <= buy_below:
+                stop = _swing_stop(side="long", highs=h, lows=l, i=i, lookback=lookback)
+                if stop is not None:
+                    entry = float(c[i])
+                    dist = entry - stop
+                    if dist > 0:
+                        tp = entry + rr * dist
+                        qty = cash / entry
+                        cash, pos, tr = _exec_fill(side="buy", price=entry, qty=qty, ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "entry", "dir": "long", "stop": stop, "tp": tp})
+                        trades.append(tr)
+                        stop_price, tp_price = stop, tp
 
-    return {
-        "trades": [trade.__dict__ for trade in trades],
-        "equity": equity,
-    }
+            elif r[i] >= sell_above:
+                stop = _swing_stop(side="short", highs=h, lows=l, i=i, lookback=lookback)
+                if stop is not None:
+                    entry = float(c[i])
+                    dist = stop - entry
+                    if dist > 0:
+                        tp = entry - rr * dist
+                        qty = cash / entry
+                        cash, pos, tr = _exec_fill(side="sell", price=entry, qty=qty, ts=int(t[i]), cash=cash, pos=pos, fee_bps=fee_bps, slippage_bps=slippage_bps, meta={"reason": "entry", "dir": "short", "stop": stop, "tp": tp})
+                        trades.append(tr)
+                        stop_price, tp_price = stop, tp
+
+    if len(c) > 0:
+        equity.append({"t": int(t[-1]), "equity": float(cash + pos * c[-1])})
+
+    return {"trades": [trade.__dict__ for trade in trades], "equity": equity}

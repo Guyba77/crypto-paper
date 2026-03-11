@@ -24,17 +24,28 @@ class BacktestRequest(BaseModel):
 async def run_backtest(req: BacktestRequest):
     raw = await fetch_klines(symbol=req.symbol, interval=req.interval, limit=req.limit)
     t = np.array([int(k[0]) for k in raw], dtype=np.int64)
-    close = np.array([float(k[4]) for k in raw], dtype=float)
+    o = np.array([float(k[1]) for k in raw], dtype=float)
+    h = np.array([float(k[2]) for k in raw], dtype=float)
+    l = np.array([float(k[3]) for k in raw], dtype=float)
+    c = np.array([float(k[4]) for k in raw], dtype=float)
+
+    # risk model: swing stop (lookback lows/highs) + fixed R:R take-profit
+    risk = {
+        "stop_lookback": int(req.params.get("stop_lookback", 11)),
+        "rr": float(req.params.get("rr", 3.0)),
+        # if both stop and TP are touched in same candle, assume stop first (conservative)
+        "same_bar_priority": str(req.params.get("same_bar_priority", "stop")),
+    }
 
     if req.strategy == "ema_cross":
         fast = int(req.params.get("fast", 20))
         slow = int(req.params.get("slow", 50))
-        result = backtest_ema_cross(t, close, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps)
+        result = backtest_ema_cross(t, o, h, l, c, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps, risk)
     elif req.strategy == "rsi_mean_reversion":
         period = int(req.params.get("period", 14))
         buy_below = float(req.params.get("buy_below", 30))
-        sell_above = float(req.params.get("sell_above", 55))
-        result = backtest_rsi_mean_reversion(t, close, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps)
+        sell_above = float(req.params.get("sell_above", 70))
+        result = backtest_rsi_mean_reversion(t, o, h, l, c, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps, risk)
     else:
         return {"error": f"unknown strategy: {req.strategy}"}
 

@@ -37,15 +37,34 @@ async def run_backtest(req: BacktestRequest):
         "same_bar_priority": str(req.params.get("same_bar_priority", "stop")),
     }
 
+    # trend filter (higher timeframe EMA)
+    trend = {
+        "enabled": bool(req.params.get("trend_enabled", True)),
+        "interval": str(req.params.get("trend_interval", "15m")),
+        "ema_period": int(req.params.get("trend_ema_period", 200)),
+    }
+
+    # compute trend EMA series on higher timeframe and align to base candles
+    trend_ema = None
+    if trend["enabled"]:
+        raw_trend = await fetch_klines(symbol=req.symbol, interval=trend["interval"], limit=1000)
+        t2 = np.array([int(k[0]) for k in raw_trend], dtype=np.int64)
+        c2 = np.array([float(k[4]) for k in raw_trend], dtype=float)
+        from ..backtest.indicators import ema as ema_fn
+        ema2 = ema_fn(c2, trend["ema_period"])
+        # align: for each base candle time, use last EMA where t2 <= t
+        idx = np.searchsorted(t2, t, side="right") - 1
+        trend_ema = np.where(idx >= 0, ema2[np.clip(idx, 0, len(ema2)-1)], np.nan)
+
     if req.strategy == "ema_cross":
         fast = int(req.params.get("fast", 20))
         slow = int(req.params.get("slow", 50))
-        result = backtest_ema_cross(t, o, h, l, c, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps, risk)
+        result = backtest_ema_cross(t, o, h, l, c, fast, slow, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ema)
     elif req.strategy == "rsi_mean_reversion":
         period = int(req.params.get("period", 14))
         buy_below = float(req.params.get("buy_below", 30))
         sell_above = float(req.params.get("sell_above", 70))
-        result = backtest_rsi_mean_reversion(t, o, h, l, c, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps, risk)
+        result = backtest_rsi_mean_reversion(t, o, h, l, c, period, buy_below, sell_above, req.initial_cash, req.fee_bps, req.slippage_bps, risk, trend_ema)
     else:
         return {"error": f"unknown strategy: {req.strategy}"}
 

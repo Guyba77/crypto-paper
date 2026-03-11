@@ -12,7 +12,7 @@ export default function HomePage() {
   const [candles, setCandles] = useState<Candle[]>([]);
 
   const [strategy, setStrategy] = useState<string>("ema_cross");
-  const [params, setParams] = useState<Record<string, string>>({ fast: "20", slow: "50", stop_lookback: "11", rr: "3" });
+  const [params, setParams] = useState<Record<string, string>>({ fast: "20", slow: "50", stop_lookback: "11", rr: "3", trend_enabled: "1", trend_interval: "15m", trend_ema_period: "200" });
   const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
@@ -33,7 +33,13 @@ export default function HomePage() {
       interval: "3m",
       limit: 1000,
       strategy,
-      params: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, Number(v)])),
+      params: Object.fromEntries(
+        Object.entries(params).map(([k, v]) => {
+          if (k === "trend_interval") return [k, v];
+          if (k === "trend_enabled") return [k, v === "1" || v.toLowerCase() === "true"];
+          return [k, Number(v)];
+        })
+      ),
       initial_cash: 1000,
       fee_bps: 10,
       slippage_bps: 2,
@@ -71,8 +77,8 @@ export default function HomePage() {
               setStrategy(v);
               setParams(
                 v === "ema_cross"
-                  ? { fast: "20", slow: "50", stop_lookback: "11", rr: "3" }
-                  : { period: "14", buy_below: "30", sell_above: "70", stop_lookback: "11", rr: "3" }
+                  ? { fast: "20", slow: "50", stop_lookback: "11", rr: "3", trend_enabled: "1", trend_interval: "15m", trend_ema_period: "200" }
+                  : { period: "14", buy_below: "30", sell_above: "70", stop_lookback: "11", rr: "3", trend_enabled: "1", trend_interval: "15m", trend_ema_period: "200" }
               );
             }}
           >

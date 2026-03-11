@@ -200,36 +200,50 @@ export default function HomePage() {
         <h2>Batch results</h2>
         {batchResults?.results ? (
           <>
-            <div style={{ overflowX: "auto" }}>
-              <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
-                <thead>
-                  <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-                    <th>Symbol</th>
-                    <th>Return %</th>
-                    <th>Trades</th>
-                    <th>Start equity</th>
-                    <th>End equity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {batchResults.results.map((r: any) => {
-                    const s = r.stats ?? {};
-                    const ret = typeof s.return_pct === "number" ? s.return_pct : null;
-                    return (
-                      <tr key={r.symbol} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                        <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{r.symbol}</td>
-                        <td style={{ color: ret === null ? undefined : ret >= 0 ? "#0a7" : "#c22" }}>
-                          {ret === null ? "—" : ret.toFixed(2)}
-                        </td>
-                        <td>{s.trades ?? "—"}</td>
-                        <td>{s.start_equity?.toFixed ? s.start_equity.toFixed(2) : "—"}</td>
-                        <td>{s.end_equity?.toFixed ? s.end_equity.toFixed(2) : "—"}</td>
+            {(() => {
+              const rows = batchResults.results as any[];
+              const endVals = rows
+                .map((r) => r?.stats?.end_equity)
+                .filter((x) => typeof x === "number") as number[];
+              const avgEnd = endVals.length ? endVals.reduce((a, b) => a + b, 0) / endVals.length : null;
+
+              return (
+                <div style={{ overflowX: "auto" }}>
+                  <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                        <th>Symbol</th>
+                        <th>Return %</th>
+                        <th>Trades</th>
+                        <th>Start equity</th>
+                        <th>End equity</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {rows.map((r: any) => {
+                        const s = r.stats ?? {};
+                        const ret = typeof s.return_pct === "number" ? s.return_pct : null;
+                        return (
+                          <tr key={r.symbol} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                            <td style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{r.symbol}</td>
+                            <td style={{ color: ret === null ? undefined : ret >= 0 ? "#0a7" : "#c22" }}>
+                              {ret === null ? "—" : ret.toFixed(2)}
+                            </td>
+                            <td>{s.trades ?? "—"}</td>
+                            <td>{s.start_equity?.toFixed ? s.start_equity.toFixed(2) : "—"}</td>
+                            <td>{s.end_equity?.toFixed ? s.end_equity.toFixed(2) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ borderTop: "2px solid #ddd", fontWeight: 600 }}>
+                        <td colSpan={4}>Average end equity</td>
+                        <td>{avgEnd === null ? "—" : avgEnd.toFixed(2)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
 
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer" }}>Raw JSON</summary>

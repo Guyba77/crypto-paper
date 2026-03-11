@@ -100,9 +100,14 @@ export default function HomePage() {
   }
 
   async function fetchLive() {
-    const res = await fetch(`${API}/api/live/state`);
-    const data = await res.json();
-    setLiveState(data);
+    try {
+      const res = await fetch(`${API}/api/live/state`);
+      const data = await res.json();
+      setLiveState(data);
+    } catch (e: any) {
+      setLiveState({ running: false, last_error: String(e?.message ?? e), markets: {} });
+      throw e;
+    }
   }
 
   async function startLive() {
@@ -117,13 +122,21 @@ export default function HomePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    await fetchLive();
-    setLivePolling(true);
+    try {
+      await fetchLive();
+      setLivePolling(true);
+    } catch {
+      setLivePolling(false);
+    }
   }
 
   async function stopLive() {
     await fetch(`${API}/api/live/stop`, { method: "POST" });
-    await fetchLive();
+    try {
+      await fetchLive();
+    } catch {
+      // ignore
+    }
     setLivePolling(false);
   }
 

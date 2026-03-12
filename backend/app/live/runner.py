@@ -5,11 +5,11 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 
 from .state import STATE, RunnerConfig, MarketState, now_ms
-from .binance_ws import reconnecting_stream
+from .kraken_ws import reconnecting_stream
 from .execution import get_execution_engine
 from ..backtest.indicators import ema, sma
 from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
-from ..services.binance import fetch_klines_paged
+from ..services.kraken_ohlc import fetch_ohlc_paged
 
 
 def _ma_fn(ma_type: str):
@@ -97,13 +97,14 @@ class LiveRunner:
             per_day = max(1, int(1440 / minutes))
 
             max_base = min(20000, max(1000, cfg.days_seed * per_day))
-            raw_base = await fetch_klines_paged(symbol=sym, interval=cfg.base_interval, max_candles=max_base)
+            raw_base = fetch_ohlc_paged(pair=sym, interval=cfg.base_interval, max_candles=max_base)
             for k in raw_base:
-                b_base.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
+                # k: [time_s, open, high, low, close, vwap, volume, count]
+                b_base.append({"t": int(k[0]) * 1000, "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[6]})
 
-            raw_trend = await fetch_klines_paged(symbol=sym, interval=cfg.trend_interval, max_candles=1000)
+            raw_trend = fetch_ohlc_paged(pair=sym, interval=cfg.trend_interval, max_candles=1000)
             for k in raw_trend:
-                b_trend.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
+                b_trend.append({"t": int(k[0]) * 1000, "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[6]})
 
     async def _run(self, cfg: RunnerConfig):
         try:

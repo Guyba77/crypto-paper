@@ -7,26 +7,12 @@ from typing import Any, Dict, Optional
 from .state import MarketState, RunnerConfig, now_ms
 
 
-def _kraken_pair_from_binance_symbol(sym: str) -> str:
-    """Best-effort mapping from Binance-style symbols (e.g. BTCUSDT) to Kraken pair codes.
+def _kraken_trade_pair(pair: str) -> str:
+    """Normalize a Kraken WS-style pair like 'XBT/USD' to trade pair code.
 
-    Kraken pair naming can vary (XBT instead of BTC). This is only a fallback.
-    Prefer explicit mapping via cfg.params['kraken_pairs'][symbol].
+    For private REST AddOrder, Kraken generally accepts codes without '/'.
     """
-    s = sym.upper().replace("/", "")
-
-    # common quote assets we handle
-    for quote in ("USDT", "USD", "EUR"):
-        if s.endswith(quote):
-            base = s[: -len(quote)]
-            if base == "BTC":
-                base = "XBT"
-            return f"{base}{quote}"
-
-    # fallback: just return as-is
-    if s == "BTC":
-        return "XBT"
-    return s
+    return pair.upper().replace("/", "")
 
 
 class ExecutionEngine:
@@ -57,10 +43,11 @@ class KrakenExecution(ExecutionEngine):
 
         params = cfg.params or {}
         pairs = params.get("kraken_pairs") or {}
+        # m.symbol is now expected to be a Kraken WS pair like 'XBT/USD'
         if isinstance(pairs, dict) and m.symbol in pairs:
             pair = str(pairs[m.symbol])
         else:
-            pair = _kraken_pair_from_binance_symbol(m.symbol)
+            pair = _kraken_trade_pair(m.symbol)
 
         # Kraken spot doesn't support true shorting without margin; keep MVP safe.
         if side == "sell":

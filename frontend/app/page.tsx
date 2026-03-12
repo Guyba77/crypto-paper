@@ -8,8 +8,8 @@ const API = "http://localhost:8000";
 
 export default function HomePage() {
   const [symbols, setSymbols] = useState<string[]>([]);
-  const [symbol, setSymbol] = useState<string>("BTCUSDT");
-  const [selected, setSelected] = useState<Set<string>>(new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]));
+  const [symbol, setSymbol] = useState<string>("XBT/USD");
+  const [selected, setSelected] = useState<Set<string>>(new Set(["XBT/USD", "ETH/USD", "SOL/USD", "XRP/USD"]));
 
   // Candle interval to monitor (default 5m so we're Kraken-compatible)
   const [baseInterval, setBaseInterval] = useState<string>("5m");
@@ -177,10 +177,12 @@ export default function HomePage() {
           Interval:{" "}
           <select value={baseInterval} onChange={(e) => setBaseInterval(e.target.value)}>
             <option value="1m">1m</option>
-            <option value="3m">3m</option>
             <option value="5m">5m</option>
             <option value="15m">15m</option>
+            <option value="30m">30m</option>
             <option value="1h">1h</option>
+            <option value="4h">4h</option>
+            <option value="1d">1d</option>
           </select>
         </label>
 

@@ -2,14 +2,28 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-# MVP: fixed top-20 universe (can be made dynamic later)
+# MVP: fixed Kraken USD universe (can be made dynamic later)
+# Use Kraken WS pair names (e.g. XBT/USD)
 TOP20 = [
-    "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT",
-    "ADAUSDT","DOGEUSDT","TRXUSDT","AVAXUSDT","LINKUSDT",
-    "DOTUSDT","MATICUSDT","TONUSDT","SHIBUSDT","LTCUSDT",
-    "BCHUSDT","UNIUSDT","ATOMUSDT","XLMUSDT","ETCUSDT",
+    "XBT/USD",
+    "ETH/USD",
+    "SOL/USD",
+    "XRP/USD",
+    "ADA/USD",
+    "DOT/USD",
+    "LINK/USD",
+    "LTC/USD",
+    "BCH/USD",
+    "XLM/USD",
+    "ATOM/USD",
+    "UNI/USD",
+    "ETC/USD",
+    "TRX/USD",
+    "DOGE/USD",
+    "AVAX/USD",
+    "MATIC/USD",
 ]
 
 @router.get("/symbols")
 def list_symbols():
-    return {"exchange": "binance", "symbols": TOP20}
+    return {"exchange": "kraken", "symbols": TOP20}

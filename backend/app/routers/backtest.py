@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 import numpy as np
 
-from ..services.binance import fetch_klines_paged
+from ..services.kraken_ohlc import fetch_ohlc_paged, interval_to_minutes
 from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
 
 router = APIRouter()
@@ -60,15 +60,16 @@ async def run_backtest(req: BacktestRequest):
     else:
         max_candles = req.max_candles
 
-    raw = await fetch_klines_paged(
-        symbol=req.symbol,
+    # Kraken OHLC uses 'since' (seconds). We'll approximate "days" by candle count; for now ignore end_time.
+    raw = fetch_ohlc_paged(
+        pair=req.symbol,
         interval=req.interval,
-        startTime=start_time,
-        endTime=end_time,
         max_candles=max_candles,
+        since_ms=start_time,
     )
 
-    t = np.array([int(k[0]) for k in raw], dtype=np.int64)
+    # k: [time_s, open, high, low, close, vwap, volume, count]
+    t = np.array([int(k[0]) * 1000 for k in raw], dtype=np.int64)
     o = np.array([float(k[1]) for k in raw], dtype=float)
     h = np.array([float(k[2]) for k in raw], dtype=float)
     l = np.array([float(k[3]) for k in raw], dtype=float)
@@ -97,8 +98,8 @@ async def run_backtest(req: BacktestRequest):
     # compute trend MA series on higher timeframe and align to base candles
     trend_ma = None
     if trend["enabled"]:
-        raw_trend = await fetch_klines_paged(symbol=req.symbol, interval=trend["interval"], max_candles=1000)
-        t2 = np.array([int(k[0]) for k in raw_trend], dtype=np.int64)
+        raw_trend = fetch_ohlc_paged(pair=req.symbol, interval=trend["interval"], max_candles=1000)
+        t2 = np.array([int(k[0]) * 1000 for k in raw_trend], dtype=np.int64)
         c2 = np.array([float(k[4]) for k in raw_trend], dtype=float)
         from ..backtest.indicators import ema as ema_fn, sma as sma_fn
         ma2 = (ema_fn if trend["ma_type"] == "ema" else sma_fn)(c2, trend["period"])

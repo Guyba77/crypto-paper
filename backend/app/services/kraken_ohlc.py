@@ -18,6 +18,14 @@ def interval_to_minutes(interval: str) -> int:
     return int(s)
 
 
+def _normalize_pair(pair: str) -> str:
+    """Accept Kraken WS-style pairs like 'XBT/USD' and convert to REST codes.
+
+    Kraken public REST endpoints typically accept codes without '/'.
+    """
+    return pair.strip().upper().replace("/", "")
+
+
 def fetch_ohlc_paged(
     pair: str,
     interval: str,
@@ -39,6 +47,8 @@ def fetch_ohlc_paged(
     minutes = interval_to_minutes(interval)
     url = base_url.rstrip("/") + "/0/public/OHLC"
 
+    pair_code = _normalize_pair(pair)
+
     out: List[List[Any]] = []
     since_s: Optional[int] = int(since_ms / 1000) if since_ms is not None else None
 
@@ -46,7 +56,7 @@ def fetch_ohlc_paged(
     loops = 0
     while len(out) < max_candles and loops < 50:
         loops += 1
-        params: Dict[str, Any] = {"pair": pair, "interval": minutes}
+        params: Dict[str, Any] = {"pair": pair_code, "interval": minutes}
         if since_s is not None:
             params["since"] = since_s
 

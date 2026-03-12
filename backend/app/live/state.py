@@ -18,6 +18,12 @@ class MarketState:
     signal: Optional[str] = None  # 'enter_long'|'enter_short'|None
     signal_meta: Dict[str, Any] = field(default_factory=dict)
 
+    # execution state (very lightweight)
+    in_position: bool = False
+    last_exec_ms: Optional[int] = None
+    last_exec_error: Optional[str] = None
+    last_order: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class RunnerConfig:

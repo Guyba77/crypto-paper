@@ -6,6 +6,7 @@ import numpy as np
 
 from .state import STATE, RunnerConfig, MarketState, now_ms
 from .binance_ws import reconnecting_stream
+from .execution import get_execution_engine
 from ..backtest.indicators import ema, sma
 from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
 from ..services.binance import fetch_klines_paged
@@ -185,6 +186,29 @@ class LiveRunner:
 
         m.signal = sig
         m.signal_meta = meta
+
+        # --- optional execution ---
+        engine = get_execution_engine(cfg)
+        if not engine:
+            return
+
+        # Only execute on fresh entry signals and avoid duplicate orders.
+        if not sig:
+            return
+        if m.in_position:
+            return
+
+        try:
+            side = "buy" if sig == "enter_long" else "sell"
+            order = await engine.on_entry(m, cfg, side=side)
+            m.in_position = True
+            m.last_exec_ms = now_ms()
+            m.last_exec_error = None
+            m.last_order = order
+        except Exception as e:
+            m.last_exec_ms = now_ms()
+            m.last_exec_error = str(e)
+            m.last_order = {}
 
 
 RUNNER = LiveRunner()

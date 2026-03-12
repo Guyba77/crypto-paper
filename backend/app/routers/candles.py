@@ -8,7 +8,7 @@ router = APIRouter()
 @router.get("/candles")
 async def get_candles(
     symbol: str,
-    interval: str = Query(default="3m"),
+    interval: str = Query(default="5m"),
     limit: int = Query(default=500, ge=1, le=5000),
 ):
     # Proxy to Binance with paging support.

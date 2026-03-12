@@ -9,7 +9,7 @@ router = APIRouter()
 
 class BacktestRequest(BaseModel):
     symbol: str
-    interval: str = "3m"
+    interval: str = "5m"
 
     # Backtest window controls:
     # - days: fetch N days back from now (approx, based on candle count)
@@ -36,8 +36,26 @@ async def run_backtest(req: BacktestRequest):
     start_time = req.start_time
 
     if start_time is None and end_time is None and req.days is not None:
-        # approximate candles needed (3m => 480/day). For other intervals, just over-fetch safely.
-        approx = int(req.days * 480) if req.interval == "3m" else int(req.days * 1000)
+        # approximate candles needed based on interval
+        def _interval_minutes(itv: str) -> int | None:
+            try:
+                if itv.endswith("m"):
+                    return int(itv[:-1])
+                if itv.endswith("h"):
+                    return int(itv[:-1]) * 60
+                if itv.endswith("d"):
+                    return int(itv[:-1]) * 60 * 24
+            except Exception:
+                return None
+            return None
+
+        mins = _interval_minutes(req.interval)
+        if mins and mins > 0:
+            per_day = max(1, int(1440 / mins))
+            approx = int(req.days * per_day)
+        else:
+            approx = int(req.days * 1000)
+
         max_candles = min(req.max_candles, max(approx, 500))
     else:
         max_candles = req.max_candles

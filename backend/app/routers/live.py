@@ -11,6 +11,9 @@ router = APIRouter()
 
 class LiveStartRequest(BaseModel):
     symbols: List[str] = Field(default_factory=lambda: TOP20[:4])
+    base_interval: str = "5m"
+    trend_interval: str = "15m"
+
     strategy: str = "ema_cross"
     params: Dict[str, Any] = {}
     trade_mode: str = "off"  # off|paper|live_kraken
@@ -31,6 +34,8 @@ async def live_state():
 async def live_start(req: LiveStartRequest):
     cfg = RunnerConfig(
         symbols=req.symbols,
+        base_interval=req.base_interval,
+        trend_interval=req.trend_interval,
         strategy=req.strategy,
         params=req.params,
         trade_mode=req.trade_mode,

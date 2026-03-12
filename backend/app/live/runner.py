@@ -49,8 +49,8 @@ class CandleBuffer:
 class LiveRunner:
     def __init__(self):
         self._task: Optional[asyncio.Task] = None
-        self._buffers_3m: Dict[str, CandleBuffer] = {}
-        self._buffers_15m: Dict[str, CandleBuffer] = {}
+        self._buffers_base: Dict[str, CandleBuffer] = {}
+        self._buffers_trend: Dict[str, CandleBuffer] = {}
 
     async def start(self, cfg: RunnerConfig):
         if STATE.running:
@@ -79,23 +79,34 @@ class LiveRunner:
     async def _seed(self, cfg: RunnerConfig):
         # seed with ~days_seed worth of data for both 3m and 15m
         for sym in cfg.symbols:
-            b3 = CandleBuffer(maxlen=20000)
-            b15 = CandleBuffer(maxlen=5000)
-            self._buffers_3m[sym] = b3
-            self._buffers_15m[sym] = b15
+            b_base = CandleBuffer(maxlen=20000)
+            b_trend = CandleBuffer(maxlen=5000)
+            self._buffers_base[sym] = b_base
+            self._buffers_trend[sym] = b_trend
 
-            max3 = min(20000, max(1000, cfg.days_seed * 480))
-            raw3 = await fetch_klines_paged(symbol=sym, interval=cfg.base_interval, max_candles=max3)
-            for k in raw3:
-                b3.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
+            # Rough candles/day: 1440 / minutes. Default to 480/day (3m) if unparseable.
+            minutes = 3
+            try:
+                if cfg.base_interval.endswith("m"):
+                    minutes = int(cfg.base_interval[:-1])
+                elif cfg.base_interval.endswith("h"):
+                    minutes = int(cfg.base_interval[:-1]) * 60
+            except Exception:
+                minutes = 3
+            per_day = max(1, int(1440 / minutes))
 
-            raw15 = await fetch_klines_paged(symbol=sym, interval=cfg.trend_interval, max_candles=1000)
-            for k in raw15:
-                b15.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
+            max_base = min(20000, max(1000, cfg.days_seed * per_day))
+            raw_base = await fetch_klines_paged(symbol=sym, interval=cfg.base_interval, max_candles=max_base)
+            for k in raw_base:
+                b_base.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
+
+            raw_trend = await fetch_klines_paged(symbol=sym, interval=cfg.trend_interval, max_candles=1000)
+            for k in raw_trend:
+                b_trend.append({"t": int(k[0]), "o": k[1], "h": k[2], "l": k[3], "c": k[4], "v": k[5]})
 
     async def _run(self, cfg: RunnerConfig):
         try:
-            async for ev in reconnecting_stream(cfg.symbols):
+            async for ev in reconnecting_stream(cfg.symbols, [cfg.base_interval, cfg.trend_interval]):
                 if not STATE.running:
                     break
                 sym = ev["symbol"]
@@ -104,10 +115,10 @@ class LiveRunner:
                     continue
 
                 if interval == cfg.base_interval:
-                    self._buffers_3m[sym].append(ev)
-                    await self._on_3m_close(sym, cfg)
+                    self._buffers_base[sym].append(ev)
+                    await self._on_base_close(sym, cfg)
                 elif interval == cfg.trend_interval:
-                    self._buffers_15m[sym].append(ev)
+                    self._buffers_trend[sym].append(ev)
                     self._update_trend(sym, cfg)
         except asyncio.CancelledError:
             return
@@ -116,7 +127,7 @@ class LiveRunner:
             STATE.running = False
 
     def _update_trend(self, sym: str, cfg: RunnerConfig):
-        b15 = self._buffers_15m.get(sym)
+        b15 = self._buffers_trend.get(sym)
         if not b15:
             return
         t, o, h, l, c = b15.np()
@@ -126,10 +137,10 @@ class LiveRunner:
         last = float(ma[-1]) if len(ma) else None
         STATE.markets[sym].trend_ma = last
 
-    async def _on_3m_close(self, sym: str, cfg: RunnerConfig):
+    async def _on_base_close(self, sym: str, cfg: RunnerConfig):
         m = STATE.markets[sym]
-        b3 = self._buffers_3m[sym]
-        t, o, h, l, c = b3.np()
+        b = self._buffers_base[sym]
+        t, o, h, l, c = b.np()
         m.last_update_ms = int(t[-1]) if len(t) else None
         m.last_price = float(c[-1]) if len(c) else None
         self._update_trend(sym, cfg)

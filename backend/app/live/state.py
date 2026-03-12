@@ -22,7 +22,7 @@ class MarketState:
 @dataclass
 class RunnerConfig:
     symbols: List[str]
-    base_interval: str = "3m"
+    base_interval: str = "5m"
     trend_interval: str = "15m"
     days_seed: int = 10
 

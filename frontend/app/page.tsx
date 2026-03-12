@@ -10,6 +10,10 @@ export default function HomePage() {
   const [symbols, setSymbols] = useState<string[]>([]);
   const [symbol, setSymbol] = useState<string>("BTCUSDT");
   const [selected, setSelected] = useState<Set<string>>(new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]));
+
+  // Candle interval to monitor (default 5m so we're Kraken-compatible)
+  const [baseInterval, setBaseInterval] = useState<string>("5m");
+
   const [candles, setCandles] = useState<Candle[]>([]);
 
   const [strategy, setStrategy] = useState<string>("ema_cross");
@@ -26,10 +30,10 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    fetch(`${API}/api/candles?symbol=${encodeURIComponent(symbol)}&interval=3m&limit=300`)
+    fetch(`${API}/api/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(baseInterval)}&limit=300`)
       .then(r => r.json())
       .then(d => setCandles(d.candles));
-  }, [symbol]);
+  }, [symbol, baseInterval]);
 
   const last = useMemo(() => candles[candles.length - 1], [candles]);
 
@@ -49,7 +53,7 @@ export default function HomePage() {
   async function runBacktest() {
     const payload = {
       symbol,
-      interval: "3m",
+      interval: baseInterval,
       days: 30,
       max_candles: 20000,
       strategy,
@@ -73,7 +77,7 @@ export default function HomePage() {
       symbols: Array.from(selected),
       backtest: {
         symbol: "BTCUSDT",
-        interval: "3m",
+        interval: baseInterval,
         days: 30,
         max_candles: 20000,
         strategy,
@@ -111,8 +115,11 @@ export default function HomePage() {
   }
 
   async function startLive() {
+    const trendInterval = String(params.trend_interval ?? "15m");
     const payload = {
       symbols: Array.from(selected),
+      base_interval: baseInterval,
+      trend_interval: trendInterval,
       strategy,
       params: buildParams(),
       trade_mode: "off",
@@ -163,6 +170,17 @@ export default function HomePage() {
             {(symbols.length ? symbols : ["BTCUSDT"]).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
+          </select>
+        </label>
+
+        <label>
+          Interval:{" "}
+          <select value={baseInterval} onChange={(e) => setBaseInterval(e.target.value)}>
+            <option value="1m">1m</option>
+            <option value="3m">3m</option>
+            <option value="5m">5m</option>
+            <option value="15m">15m</option>
+            <option value="1h">1h</option>
           </select>
         </label>
 
@@ -292,7 +310,7 @@ export default function HomePage() {
       </section>
 
       <section style={{ marginTop: 16 }}>
-        <h2>Latest candle (3m)</h2>
+        <h2>Latest candle ({baseInterval})</h2>
         {last ? (
           <pre style={{ background: "#f6f6f6", padding: 12, overflowX: "auto" }}>{JSON.stringify(last, null, 2)}</pre>
         ) : (

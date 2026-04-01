@@ -99,3 +99,18 @@ class KrakenClient:
 
     def cancel_all(self) -> Dict[str, Any]:
         return self._post_private("CancelAll", {})
+
+    def get_balance(self) -> Dict[str, float]:
+        """Fetch account balances. Returns dict like {'USDT': 1234.56, 'XBT': 0.5}"""
+        result = self._post_private("Balance", {})
+        # Kraken returns string values; convert to float
+        return {k: float(v) for k, v in result.items()}
+
+    def get_asset_balance(self, asset: str = "USDT") -> float:
+        """Get balance for a specific asset. Kraken uses 'USDT' or 'ZUSD' etc."""
+        balances = self.get_balance()
+        # Try exact match first, then common Kraken variants
+        for key in [asset, f"Z{asset}", f"X{asset}", asset.upper()]:
+            if key in balances:
+                return balances[key]
+        return 0.0

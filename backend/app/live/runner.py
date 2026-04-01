@@ -6,7 +6,7 @@ import numpy as np
 
 from .state import STATE, RunnerConfig, MarketState, now_ms
 from .kraken_ws import reconnecting_stream
-from .execution import get_execution_engine
+from .execution import get_execution_engine, check_paper_exit
 from ..backtest.indicators import ema, sma
 from ..backtest.engine import backtest_ema_cross, backtest_rsi_mean_reversion
 from ..services.kraken_ohlc import fetch_ohlc_paged
@@ -146,6 +146,12 @@ class LiveRunner:
         m.last_update_ms = int(t[-1]) if len(t) else None
         m.last_price = float(c[-1]) if len(c) else None
         self._update_trend(sym, cfg)
+        
+        # Check paper position exits using candle high/low
+        if cfg.trade_mode == "paper" and m.in_position:
+            candle_high = float(h[-1]) if len(h) else m.last_price or 0
+            candle_low = float(l[-1]) if len(l) else m.last_price or 0
+            check_paper_exit(m, candle_high, candle_low)
 
         # Build aligned trend series (constant last trend for now; good enough for screener)
         trend_val = m.trend_ma

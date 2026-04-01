@@ -24,6 +24,11 @@ export default function HomePage() {
 
   const [liveState, setLiveState] = useState<any>(null);
   const [livePolling, setLivePolling] = useState<boolean>(false);
+  const [tradeMode, setTradeMode] = useState<string>("off");
+  const [tradingEnabled, setTradingEnabled] = useState<boolean>(false);
+  const [execLogs, setExecLogs] = useState<any[]>([]);
+  const [paperTrades, setPaperTrades] = useState<any>(null);
+  const [openPositions, setOpenPositions] = useState<any[]>([]);
 
   useEffect(() => {
     fetch(`${API}/api/symbols`).then(r => r.json()).then(d => setSymbols(d.symbols));
@@ -108,9 +113,66 @@ export default function HomePage() {
       const res = await fetch(`${API}/api/live/state`);
       const data = await res.json();
       setLiveState(data);
+      if (data.config?.trade_mode) {
+        setTradeMode(data.config.trade_mode);
+      }
     } catch (e: any) {
       setLiveState({ running: false, last_error: String(e?.message ?? e), markets: {} });
       throw e;
+    }
+  }
+
+  async function fetchTradeEnabled() {
+    try {
+      const res = await fetch(`${API}/api/live/trade-enabled`);
+      const data = await res.json();
+      setTradingEnabled(data.enabled);
+      if (data.current_mode) setTradeMode(data.current_mode);
+    } catch {
+      setTradingEnabled(false);
+    }
+  }
+
+  async function fetchLogs() {
+    try {
+      const res = await fetch(`${API}/api/live/logs?limit=50`);
+      const data = await res.json();
+      setExecLogs(data.logs || []);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function fetchPaperTrades() {
+    try {
+      const [tradesRes, posRes] = await Promise.all([
+        fetch(`${API}/api/live/paper-trades?limit=20`),
+        fetch(`${API}/api/live/open-positions`),
+      ]);
+      const tradesData = await tradesRes.json();
+      const posData = await posRes.json();
+      setPaperTrades(tradesData);
+      setOpenPositions(posData.positions || []);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function setTradeModeApi(mode: string) {
+    try {
+      const res = await fetch(`${API}/api/live/trade-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTradeMode(data.mode);
+      } else {
+        alert(data.error || "Failed to set trade mode");
+      }
+    } catch (e: any) {
+      alert("Error: " + (e?.message ?? e));
     }
   }
 
@@ -149,15 +211,20 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchLive().catch(() => {});
+    fetchTradeEnabled();
   }, []);
 
   useEffect(() => {
     if (!livePolling) return;
     const id = setInterval(() => {
       fetchLive().catch(() => {});
+      fetchLogs();
+      if (tradeMode === "paper") {
+        fetchPaperTrades();
+      }
     }, 2000);
     return () => clearInterval(id);
-  }, [livePolling]);
+  }, [livePolling, tradeMode]);
 
   return (
     <main style={{ padding: 16, maxWidth: 980, margin: "0 auto" }}>
@@ -279,6 +346,47 @@ export default function HomePage() {
           </span>
         </div>
 
+        {/* Trade mode controls */}
+        <div style={{ marginTop: 12, padding: 12, background: tradeMode === "live_kraken" ? "#fff3cd" : "#f6f6f6", borderRadius: 6 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <strong>Trade Mode:</strong>
+            <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <input
+                type="radio"
+                name="tradeMode"
+                checked={tradeMode === "off"}
+                onChange={() => setTradeModeApi("off")}
+              />
+              Off (signals only)
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <input
+                type="radio"
+                name="tradeMode"
+                checked={tradeMode === "paper"}
+                onChange={() => setTradeModeApi("paper")}
+              />
+              Paper trading
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, color: tradingEnabled ? undefined : "#999" }}>
+              <input
+                type="radio"
+                name="tradeMode"
+                checked={tradeMode === "live_kraken"}
+                onChange={() => setTradeModeApi("live_kraken")}
+                disabled={!tradingEnabled}
+              />
+              🔴 Live Kraken
+              {!tradingEnabled && <span style={{ fontSize: 12 }}>(disabled)</span>}
+            </label>
+          </div>
+          {tradeMode === "live_kraken" && (
+            <div style={{ marginTop: 8, color: "#856404", fontWeight: 500 }}>
+              ⚠️ LIVE TRADING ENABLED — Real orders will be placed on Kraken
+            </div>
+          )}
+        </div>
+
         {liveState?.markets ? (
           <div style={{ marginTop: 8, overflowX: "auto" }}>
             <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%", minWidth: 700 }}>
@@ -308,6 +416,134 @@ export default function HomePage() {
           </div>
         ) : (
           <p style={{ color: "#666" }}>No live state yet.</p>
+        )}
+
+        {/* Execution logs */}
+        {(tradeMode !== "off" || execLogs.length > 0) && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0 }}>Execution Logs</h3>
+              <button onClick={fetchLogs} style={{ fontSize: 12 }}>Refresh logs</button>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                maxHeight: 200,
+                overflowY: "auto",
+                background: "#1a1a1a",
+                color: "#f0f0f0",
+                padding: 12,
+                borderRadius: 6,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontSize: 12,
+              }}
+            >
+              {execLogs.length === 0 ? (
+                <div style={{ color: "#666" }}>No execution logs yet.</div>
+              ) : (
+                execLogs.map((log, i) => {
+                  const time = new Date(log.ts_ms).toLocaleTimeString();
+                  const levelColor = log.level === "error" ? "#f44" : log.level === "warn" ? "#fa0" : "#0f0";
+                  return (
+                    <div key={i} style={{ marginBottom: 4 }}>
+                      <span style={{ color: "#888" }}>[{time}]</span>{" "}
+                      <span style={{ color: levelColor }}>[{log.level.toUpperCase()}]</span>{" "}
+                      {log.message}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Paper trading positions and trades */}
+        {tradeMode === "paper" && (
+          <div style={{ marginTop: 16 }}>
+            {/* Open positions */}
+            {openPositions.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ margin: "0 0 8px 0" }}>📊 Open Positions</h3>
+                <table cellPadding={6} style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Entry</th>
+                      <th>Current</th>
+                      <th>Stop</th>
+                      <th>TP</th>
+                      <th>Unrealized P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openPositions.map((pos: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={{ fontFamily: "monospace" }}>{pos.symbol}</td>
+                        <td style={{ color: pos.side === "buy" ? "#0a7" : "#c22" }}>{pos.side.toUpperCase()}</td>
+                        <td>{pos.entry_price?.toFixed(2)}</td>
+                        <td>{pos.current_price?.toFixed(2)}</td>
+                        <td>{pos.stop?.toFixed(2) ?? "—"}</td>
+                        <td>{pos.tp?.toFixed(2) ?? "—"}</td>
+                        <td style={{ color: pos.unrealized_pnl_pct >= 0 ? "#0a7" : "#c22", fontWeight: 600 }}>
+                          {pos.unrealized_pnl_pct >= 0 ? "+" : ""}{pos.unrealized_pnl_pct?.toFixed(2)}% (${pos.unrealized_pnl_quote?.toFixed(2)})
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Closed trades */}
+            {paperTrades?.trades?.length > 0 && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <h3 style={{ margin: 0 }}>📈 Paper Trade History</h3>
+                  {paperTrades.summary && (
+                    <div style={{ fontSize: 13 }}>
+                      <span style={{ marginRight: 12 }}>
+                        W/L: <strong>{paperTrades.summary.wins}/{paperTrades.summary.losses}</strong> ({paperTrades.summary.win_rate?.toFixed(0)}%)
+                      </span>
+                      <span style={{ color: paperTrades.summary.total_pnl >= 0 ? "#0a7" : "#c22", fontWeight: 600 }}>
+                        Total: ${paperTrades.summary.total_pnl?.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <table cellPadding={6} style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Entry</th>
+                      <th>Exit</th>
+                      <th>Reason</th>
+                      <th>P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paperTrades.trades.slice().reverse().map((t: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={{ fontFamily: "monospace" }}>{t.symbol}</td>
+                        <td style={{ color: t.side === "buy" ? "#0a7" : "#c22" }}>{t.side.toUpperCase()}</td>
+                        <td>{t.entry_price?.toFixed(2)}</td>
+                        <td>{t.exit_price?.toFixed(2)}</td>
+                        <td>{t.exit_reason === "tp" ? "🎯 TP" : "🛑 Stop"}</td>
+                        <td style={{ color: t.pnl_pct >= 0 ? "#0a7" : "#c22", fontWeight: 600 }}>
+                          {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct?.toFixed(2)}% (${t.pnl_quote?.toFixed(2)})
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {openPositions.length === 0 && (!paperTrades?.trades || paperTrades.trades.length === 0) && (
+              <p style={{ color: "#666" }}>No paper trades yet. Waiting for signals...</p>
+            )}
+          </div>
         )}
       </section>
 
